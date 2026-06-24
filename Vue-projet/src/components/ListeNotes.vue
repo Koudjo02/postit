@@ -27,7 +27,7 @@
           <div class="postit-pin"></div>
 
           <div class="postit-actions">
-            <button @click.prevent="modifier(note)" class="action-btn action-btn--edit" title="Modifier">
+            <button @click.prevent="ouvrirModale(note)" class="action-btn action-btn--edit" title="Modifier">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             </button>
             <button @click.prevent="store.supprimer(note._id)" class="action-btn action-btn--delete" title="Supprimer">
@@ -56,31 +56,39 @@
 
       <!-- Pagination -->
       <div v-if="totalPages > 1" class="pagination">
-        <button
-          class="page-btn"
-          :disabled="currentPage === 1"
-          @click="goTo(currentPage - 1)"
-        >
-          ←
-        </button>
+        <button class="page-btn" :disabled="currentPage === 1" @click="goTo(currentPage - 1)">←</button>
+        <template v-for="p in pageNumbers" :key="p">
+          <span v-if="p === '...'" class="page-dots">…</span>
+          <button v-else class="page-btn" :class="{ 'page-btn--active': p === currentPage }" @click="goTo(Number(p))">{{ p }}</button>
+        </template>
+        <button class="page-btn" :disabled="currentPage === totalPages" @click="goTo(currentPage + 1)">→</button>
+      </div>
+    </div>
 
-        <button
-          v-for="p in totalPages"
-          :key="p"
-          class="page-btn"
-          :class="{ 'page-btn--active': p === currentPage }"
-          @click="goTo(p)"
-        >
-          {{ p }}
-        </button>
+    <!-- Modale modification -->
+    <div v-if="modaleOuverte" class="modale-overlay" @click.self="fermerModale">
+      <div class="modale">
+        <div class="modale-pin"></div>
+        <h3 class="modale-title">✏️ Modifier la note</h3>
 
-        <button
-          class="page-btn"
-          :disabled="currentPage === totalPages"
-          @click="goTo(currentPage + 1)"
-        >
-          →
-        </button>
+        <div class="modale-field">
+          <label class="modale-label">Pseudo</label>
+          <input v-model="editPseudo" type="text" class="modale-input" placeholder="Votre pseudo" maxlength="30" />
+        </div>
+
+        <div class="modale-field">
+          <label class="modale-label">Message</label>
+          <textarea v-model="editMessage" class="modale-textarea" rows="4" placeholder="Votre message" maxlength="300"></textarea>
+          <span class="modale-count">{{ editMessage.length }}/300</span>
+        </div>
+
+        <div class="modale-actions">
+          <button class="modale-btn modale-btn--cancel" @click="fermerModale">Annuler</button>
+          <button class="modale-btn modale-btn--save" :disabled="!editMessage.trim() || store.isLoading" @click="sauvegarder">
+            <span v-if="store.isLoading" class="btn-spinner"></span>
+            {{ store.isLoading ? 'Enregistrement...' : '📌 Sauvegarder' }}
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -99,6 +107,12 @@ const MAX_CHARS = 120
 const currentPage = ref(1)
 const expanded = ref<Set<string>>(new Set())
 
+// Modale
+const modaleOuverte = ref(false)
+const noteEnCours = ref<any>(null)
+const editPseudo = ref('')
+const editMessage = ref('')
+
 onMounted(() => store.charger_notes())
 
 const totalPages = computed(() => Math.ceil(store.maliste.length / PER_PAGE))
@@ -106,6 +120,15 @@ const totalPages = computed(() => Math.ceil(store.maliste.length / PER_PAGE))
 const notesDeLaPage = computed(() => {
   const start = (currentPage.value - 1) * PER_PAGE
   return store.maliste.slice(start, start + PER_PAGE)
+})
+
+const pageNumbers = computed(() => {
+  const total = totalPages.value
+  const current = currentPage.value
+  if (total <= 5) return Array.from({ length: total }, (_, i) => i + 1)
+  if (current <= 3) return [1, 2, 3, 4, '...', total]
+  if (current >= total - 2) return [1, '...', total - 3, total - 2, total - 1, total]
+  return [1, '...', current - 1, current, current + 1, '...', total]
 })
 
 function globalIndex(localIndex: number) {
@@ -131,11 +154,22 @@ function toggle(id: string) {
   expanded.value = new Set(expanded.value)
 }
 
-function modifier(note: any) {
-  const txt = prompt('Nouveau message :', note.content[0])
-  if (txt) {
-    store.modifier(note._id, note.title, txt)
-  }
+function ouvrirModale(note: any) {
+  noteEnCours.value = note
+  editPseudo.value = note.title || ''
+  editMessage.value = note.content[0] || ''
+  modaleOuverte.value = true
+}
+
+function fermerModale() {
+  modaleOuverte.value = false
+  noteEnCours.value = null
+}
+
+async function sauvegarder() {
+  if (!editMessage.value.trim() || !noteEnCours.value) return
+  await store.modifier(noteEnCours.value._id, editPseudo.value, editMessage.value)
+  fermerModale()
 }
 </script>
 
@@ -288,14 +322,14 @@ function modifier(note: any) {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
   margin-top: 48px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .page-btn {
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   border: 2px solid rgba(90,64,48,0.25);
   background: rgba(255,249,163,0.5);
   border-radius: 6px;
@@ -308,6 +342,7 @@ function modifier(note: any) {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .page-btn:hover:not(:disabled) {
@@ -327,6 +362,179 @@ function modifier(note: any) {
   cursor: not-allowed;
 }
 
+.page-dots {
+  width: 28px;
+  text-align: center;
+  color: #5a4030;
+  font-family: 'Caveat', cursive;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Modale */
+.modale-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(40,25,15,0.55);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: 20px;
+}
+
+.modale {
+  background: #fffef5;
+  border-radius: 4px;
+  width: 100%;
+  max-width: 420px;
+  padding: 32px 28px 28px;
+  position: relative;
+  box-shadow:
+    3px 3px 0 #d4c898,
+    6px 6px 0 #c8ba82,
+    0 20px 60px rgba(40,25,15,0.35);
+  background-image: repeating-linear-gradient(
+    transparent,
+    transparent 31px,
+    #e8e0cc 31px,
+    #e8e0cc 32px
+  );
+  background-position: 0 48px;
+}
+
+.modale-pin {
+  width: 14px;
+  height: 14px;
+  background: radial-gradient(circle at 35% 35%, #ff6b6b, #cc0000);
+  border-radius: 50%;
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+}
+
+.modale-title {
+  font-family: 'Caveat', cursive;
+  font-size: 26px;
+  font-weight: 700;
+  color: #3d2b1f;
+  margin: 0 0 24px;
+}
+
+.modale-field {
+  margin-bottom: 20px;
+  position: relative;
+}
+
+.modale-label {
+  display: block;
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  color: #8a7060;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 6px;
+}
+
+.modale-input,
+.modale-textarea {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid #d4c4a0;
+  border-radius: 0;
+  padding: 6px 0;
+  font-family: 'Caveat', cursive;
+  font-size: 20px;
+  color: #2a1d14;
+  outline: none;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+  resize: none;
+}
+
+.modale-input:focus,
+.modale-textarea:focus {
+  border-bottom-color: #c8860a;
+}
+
+.modale-count {
+  position: absolute;
+  bottom: -18px;
+  right: 0;
+  font-size: 11px;
+  color: #b0a080;
+  font-family: 'Inter', sans-serif;
+}
+
+.modale-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 32px;
+}
+
+.modale-btn {
+  flex: 1;
+  padding: 11px 16px;
+  border-radius: 6px;
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.modale-btn--cancel {
+  background: rgba(90,64,48,0.1);
+  color: #5a4030;
+  border: 1.5px solid rgba(90,64,48,0.2);
+}
+
+.modale-btn--cancel:hover {
+  background: rgba(90,64,48,0.18);
+}
+
+.modale-btn--save {
+  background: #c8860a;
+  color: #fff8ee;
+  box-shadow: 0 3px 0 #8a5a06;
+}
+
+.modale-btn--save:hover:not(:disabled) {
+  background: #d4920c;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 0 #8a5a06;
+}
+
+.modale-btn--save:disabled {
+  background: #c8b898;
+  color: #e8dcc8;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,248,238,0.3);
+  border-top-color: #fff8ee;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+/* Loading / Empty */
 .loading {
   display: flex;
   flex-direction: column;
